@@ -44,9 +44,10 @@ class ModelArgs:
         if name in transformer_configs:
             return cls(**transformer_configs[name])
         # fuzzy search
-        config = [config for config in transformer_configs if config in str(name).upper() or config in str(name)]
-        assert len(config) == 1, name
-        return cls(**transformer_configs[config[0]])
+        # config = [config for config in transformer_configs if config in str(name).upper() or config in str(name)]
+        # assert len(config) == 1, name
+        # return cls(**transformer_configs[config[0]])
+        return cls(n_layer=4, dim=768, n_head=12, intermediate_size=3072)
 
 
 transformer_configs = {

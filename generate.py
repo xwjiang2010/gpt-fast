@@ -27,6 +27,8 @@ from sentencepiece import SentencePieceProcessor
 from model import Transformer
 from tp import maybe_init_dist
 
+batch_size = 8
+
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
     q = torch.empty_like(probs_sort).exponential_(1)
@@ -52,6 +54,12 @@ def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **samp
     logits = model(x, input_pos)
     return sample(logits, **sampling_kwargs)[0]
 
+def fill_bs(x):
+    return x.repeat(batch_size, *([1] * (len(x.shape) - 1)))
+
+def prefill_bs(model, x, input_pos, **sampling_kwargs):
+    return prefill(model, fill_bs(x), input_pos, **sampling_kwargs)    
+
 def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
     # input_pos: [B, 1]
     assert input_pos.shape[-1] == 1
@@ -70,8 +78,12 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
         callback(new_tokens[-1])
         new_probs.append(next_prob.clone())
         cur_token = next_token.view(1, -1)
+        # artificially add batch size
+        cur_token = fill_bs(cur_token)
     return new_tokens, new_probs
 
+def decode_n_tokens_bs(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
+    return decode_n_tokens(model, fill_bs(cur_token), input_pos, num_new_tokens, callback, **sampling_kwargs)
 
 def model_forward(model, x, input_pos):
     return model(x, input_pos)
@@ -154,7 +166,7 @@ def generate(
     device, dtype = prompt.device, prompt.dtype
     max_seq_length = max_seq_length + speculate_k + 1 if is_speculative else max_seq_length
     with torch.device(device):
-        model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
+        model.setup_caches(max_batch_size=batch_size, max_seq_length=max_seq_length)
         if is_speculative and draft_model is not model:
             draft_model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 
@@ -163,8 +175,8 @@ def generate(
     empty[:T] = prompt
     seq = empty
     input_pos = torch.arange(0, T, device=device)
-
-    next_token = prefill(model, prompt.view(1, -1), input_pos, **sampling_kwargs)
+    # next_token = prefill(model, prompt.view(1, -1), input_pos, **sampling_kwargs)
+    next_token = prefill_bs(model, prompt.view(1, -1), input_pos, **sampling_kwargs)
     if is_speculative:
         prefill(draft_model, prompt.view(1, -1), input_pos, **sampling_kwargs)
     seq[T] = next_token
@@ -189,7 +201,8 @@ def generate(
             input_pos = input_pos + num_added
             next_token = next_tokens[-1]
     else:
-        generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, callback=callback, **sampling_kwargs)
+        generated_tokens, _ = decode_n_tokens_bs(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, callback=callback, **sampling_kwargs)
+        # generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, callback=callback, **sampling_kwargs)
         seq[T + 1:] = torch.cat(generated_tokens)
 
     generate_stats = {
@@ -242,7 +255,7 @@ def main(
     max_new_tokens: int = 100,
     top_k: int = 200,
     temperature: float = 0.8,
-    checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
+    checkpoint_path: Path = Path("/mnt/local_storage/ckpt/model_new.pth"),
     compile: bool = True,
     compile_prefill: bool = False,
     profile: Optional[Path] = None,
@@ -396,7 +409,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
-    parser.add_argument('--checkpoint_path', type=Path, default=Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
+    parser.add_argument('--checkpoint_path', type=Path, default=Path("/mnt/local_storage/ckpt/model_new.pth"), help='Model checkpoint path.')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')
