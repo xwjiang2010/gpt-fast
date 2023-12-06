@@ -1,3 +1,20 @@
+# Additional instructions for evaluating draft model performance using this repo.
+
+First please patch the change in this forked repo.
+
+## Convert our checkpoint to the form that gpt-fast takes
+
+You can skip this if you already have one. For convenience, one can download the already converted 80m checkpoint from:
+```
+aws s3 sync s3://anyscale-staging-data-cld-kvedzwag2qa8i5bjxuevf5i7/org_7c1Kalm9WcX2bNIjW53GUT/cld_kvedZWag2qA8i5BjxUevf5i7/artifact_storage/xwjiang/llmforge-finetuning/spec_80m/ckpt /mnt/local_storage/ckpt
+```
+If you would rather convert something new, you can follow the instructions in `scripts/convert_ckpt.py`.
+
+## run `python generate.py --compile --prompt "Hello, my name is"`
+One can change `batch_size` in `generate.py` to see how different batch_size may affect performance.
+
+
+
 # gpt-fast
 Simple and efficient pytorch-native transformer text generation.
 
